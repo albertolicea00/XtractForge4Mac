@@ -35,35 +35,38 @@ standard macOS Settings scene (⌘,). No tabs-and-sidebar shell like the old app
 ## Tech Stack
 
 - Swift 5.10+, SwiftUI (AppKit interop where needed), macOS 14+ target.
-- Xcode project (`XtractForge.xcodeproj`), no external package manager unless a
-  dependency is truly unavoidable — prefer zero third-party dependencies.
+- Swift Package (`Package.swift`) — no `.xcodeproj` checked in; `swift build` /
+  `swift test` from the CLI, or open the package in Xcode. Zero third-party
+  dependencies.
 - Child processes via `Foundation.Process`; async/await + `AsyncStream` for
   stdout/stderr line streaming.
-- Tests: Swift Testing (or XCTest) for all pure logic.
+- Tests: XCTest against `XtractForgeCore` (all pure logic lives there).
 
 ## Project Layout
 
+Two targets: `XtractForgeCore` (library — models, downloaders, engine; no UI,
+fully testable) and `XtractForge` (executable — SwiftUI app importing Core).
+
 ```
-XtractForge/
-├── XtractForgeApp.swift        # @main — Window scene, Settings scene, Commands (menu bar)
-├── Views/
-│   ├── MainView.swift          # single screen: intake area + download queue
-│   ├── DropZoneView.swift      # drag & drop + paste affordance
-│   ├── DownloadRowView.swift   # per-item progress, pause/cancel, reveal in Finder
-│   ├── OptionsSheet.swift      # per-download options (format/quality) before queueing
-│   └── SettingsView.swift      # Settings scene: General / Downloaders / Appearance
+Package.swift
+Sources/XtractForgeCore/
+├── Models/                     # Models.swift (MediaInfo, Command, OptionField, …), AppSettings.swift
 ├── Downloaders/
-│   ├── Downloader.swift        # the protocol (below)
-│   ├── DownloaderRegistry.swift# fixed array, routing order
+│   ├── Downloader.swift        # the protocol + DownloaderRegistry (fixed array, routing order)
 │   ├── YtDlp.swift, Lux.swift, GalleryDl.swift, SpotDl.swift, FFmpeg.swift, Curl.swift
 ├── Engine/
-│   ├── DownloadManager.swift   # @Observable queue state; owns all DownloadTasks
-│   ├── ProcessRunner.swift     # Process wrapper: spawn, stream lines, SIGTERM/SIGSTOP/SIGCONT
+│   ├── DownloadManager.swift   # @Observable queue state + DownloadItem; owns all tasks
+│   ├── ProcessRunner.swift     # Process wrapper: spawn, stream lines, suspend/resume/terminate
 │   ├── Staging.swift           # temp-dir staging + move-on-success + organize
-│   └── IntakeService.swift     # single entry point for every URL that enters the app
-├── Models/                     # DownloadItem, MediaInfo, ProgressUpdate, AppSettings
-└── Support/                    # Appearance.swift, Formatters.swift
-XtractForgeTests/               # routing, arg-building, progress parsing, staging logic
+│   └── Intake.swift            # pure URL extraction from dropped/pasted text
+└── Support/                    # Regex.swift helper
+Sources/XtractForge/
+├── XtractForgeApp.swift        # @main — Window scene, Settings scene, Commands (menu bar)
+├── SettingsStore.swift         # @Observable AppSettings wrapper persisted to UserDefaults
+├── Views/                      # MainView, DropZoneView, DownloadRowView, OptionsSheet, SettingsView
+└── Support/AppServices.swift   # IntakeService (single URL entry point), notifications, appearance
+Tests/XtractForgeCoreTests/     # routing, arg-building, progress parsing, staging, intake
+scripts/make-app.sh             # assembles dist/XtractForge.app from the release build
 ```
 
 ## Downloader Protocol (fixed, compiled-in)
@@ -86,8 +89,10 @@ protocol Downloader {
 **Routing** (`DownloaderRegistry.route(url:)`): first match wins, most specific first —
 `spotdl → gallery-dl → lux → ffmpeg → curl → yt-dlp`. yt-dlp's `canHandle` always
 returns `true` (catch-all). Downloaders disabled in Settings are skipped.
-Port each downloader's URL matching, arg building, and progress-line regexes from
-`../old/src/plugins/*.ts` — that logic is battle-tested; translate it, don't reinvent it.
+Each downloader's URL matching, arg building, and progress-line regexes are ported
+from `../old/src/plugins/*.ts`. One deliberate deviation: lux no longer claims
+youtube.com/youtu.be/twitter/x/instagram — YouTube belongs to yt-dlp, and
+twitter/instagram were already captured by gallery-dl (which precedes lux).
 
 **Per-download options:** `MediaInfo` may carry an option schema (format/quality/audio-only
 etc., same idea as old `_downloadOptions`) rendered by `OptionsSheet`; simple sources set
@@ -118,8 +123,9 @@ on app activation).
 
 ## Native Integration (this is the point of the rewrite)
 
-- **Menu bar** via SwiftUI `Commands`: File (Paste URL ⌘V, Open Downloads Folder ⇧⌘O),
-  standard Edit menu, Window, Help, About panel. Settings under the app menu (⌘,).
+- **Menu bar** via SwiftUI `Commands`: File (Paste URL ⇧⌘V, Open Downloads Folder ⇧⌘O,
+  Clear Finished ⇧⌘K), standard Edit menu, Window, Help, About panel. Settings under
+  the app menu (⌘,). (⇧⌘V, not ⌘V — plain ⌘V stays reserved for text-field paste.)
 - Standard macOS behaviors: drag & drop via `.dropDestination(for:)`, Services-friendly
   paste, Dock badge with active download count, App Nap disabled while downloading
   (`ProcessInfo.beginActivity`).
@@ -133,8 +139,10 @@ on app activation).
 ## Development Workflow
 
 ```bash
-xcodebuild -scheme XtractForge build          # or just build/run in Xcode
-xcodebuild -scheme XtractForge test           # run unit tests
+swift build               # debug build
+swift run XtractForge     # run the app (no bundle → notifications disabled)
+swift test                # run unit tests
+scripts/make-app.sh       # assemble dist/XtractForge.app (release, ad-hoc signed)
 ```
 
 - Distribution: Developer ID signed + notarized `.dmg` (scripted later; not set up yet).
