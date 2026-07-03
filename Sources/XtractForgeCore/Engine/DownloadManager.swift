@@ -101,7 +101,8 @@ public final class DownloadManager {
 
     /// Start (or restart after pause-on-failure) a download with chosen options.
     public func start(_ item: DownloadItem, options pluginOptions: [String: String],
-                      formatId: String?, audioOnly: Bool, resume: Bool = false) {
+                      formatId: String?, audioOnly: Bool, audioFormat: String = "mp3",
+                      resume: Bool = false) {
         guard let downloader = item.downloader else { return }
         let settings = settingsProvider()
 
@@ -123,6 +124,7 @@ public final class DownloadManager {
             downloadFolder: workFolder.path,
             formatId: formatId,
             audioOnly: audioOnly,
+            audioFormat: audioFormat,
             isPlaylist: item.info?.isPlaylist ?? false,
             resume: resume,
             pluginOptions: pluginOptions

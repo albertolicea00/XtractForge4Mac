@@ -74,7 +74,8 @@ struct OptionsSheet: View {
                         item,
                         options: fieldValues,
                         formatId: (selectedFormat == "best" || audioOnly) ? nil : selectedFormat,
-                        audioOnly: audioOnly
+                        audioOnly: audioOnly,
+                        audioFormat: audioFormat
                     )
                     dismiss()
                 }
